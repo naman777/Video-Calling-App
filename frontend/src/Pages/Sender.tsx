@@ -1,90 +1,105 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useWebSocket } from '../Hooks/useSocket';
 import { useParams } from 'react-router-dom';
 
 const Sender: React.FC = () => {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
-  const [localVideo, setLocalVideo] = useState<HTMLVideoElement | null>(null);
-  const [remoteVideo, setRemoteVideo] = useState<HTMLVideoElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const { socket } = useWebSocket();
-  const {roomId} = useParams();
+  const { roomId } = useParams();
+
+  useEffect(() => {
+    return () => {
+      if (pc) {
+        pc.close();
+        if (localVideoRef.current && localVideoRef.current.srcObject) {
+          (localVideoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+        }
+      }
+    };
+  }, [pc]);
 
   const initiateConnection = async () => {
     if (!socket) {
       alert("Socket not found");
       return;
     }
+  
+    try {
+      const p = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] 
+      });
+      p.addTransceiver('video', { direction: 'recvonly' });
+      setPc(p);
 
-    const p = new RTCPeerConnection();
-    setPc(p);
+      // Set up ICE candidate event handler
+      p.addEventListener("icecandidate", (event) => {
+        if (event.candidate) {
+          console.log("ICE candidate generated:", event.candidate);
+          socket.send(JSON.stringify({
+            type: 'ice-candidate',
+            candidate: event.candidate,
+            roomId
+          }));
+        } else {
+          console.log("End of candidate gathering.");
+        }
+      });
 
-    const offer = await pc!.createOffer();
-      await pc!.setLocalDescription(offer);
+      // Set up WebSocket message handler
+      socket.onmessage = async (event) => {
+        console.log("Message received from WebSocket:", event.data);
+        const message = JSON.parse(event.data);
+        if (message.type === 'answer') {
+          await p.setRemoteDescription(new RTCSessionDescription(message.answer));
+        } else if (message.type === 'ice-candidate') {
+          await p.addIceCandidate(new RTCIceCandidate(message.candidate));
+          console.log("ICE candidate received and added:", message.candidate);
+        }
+      };
+
+      // Create and send offer
+      const offer = await p.createOffer();
+      await p.setLocalDescription(offer);
       socket.send(JSON.stringify({
         type: 'create-offer',
-        offer: pc!.localDescription,
+        offer: p.localDescription,
         roomId
       }));
+      
+      // Set up track event handler to handle remote stream
+      p.ontrack = (event) => {
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+          remoteVideoRef.current.play();
+        }
+      };
 
-    socket.onmessage = async (event) => {
-      const message = JSON.parse(event.data);
-      if (message.type === 'answer') {
-        await pc!.setRemoteDescription(new RTCSessionDescription(message.answer));
-      } else if (message.type === 'ice-candidate') {
-        await pc!.addIceCandidate(new RTCIceCandidate(message.candidate));
-      }
-    };
-
-    pc!.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.send(JSON.stringify({
-          type: 'ice-candidate',
-          candidate: event.candidate,
-          roomId
-        }));
-      }
-    };
-
-    pc!.ontrack = (event) => {
-      if (remoteVideo) {
-        remoteVideo.srcObject = event.streams[0];
-        remoteVideo.play();
-      }
-    };
-
-    getCameraStreamAndSend(pc!);
+      // Get user media and add it to the peer connection
+      getCameraStreamAndSend(p);
+    } catch (error) {
+      console.error("Error during connection setup:", error);
+    }
   };
 
-  const getCameraStreamAndSend = (pc: RTCPeerConnection) => {
-    navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
-      if (!localVideo) return;
+  const getCameraStreamAndSend = (p: RTCPeerConnection) => {
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then((stream) => {
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+          localVideoRef.current.play();
+        }
 
-      localVideo.srcObject = stream;
-      localVideo.play();
-      stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream);
+        // Add each track to the RTCPeerConnection
+        stream.getTracks().forEach((track) => {
+          p.addTrack(track, stream);
+        });
+      })
+      .catch((error) => {
+        console.error("Error accessing camera:", error);
       });
-    });
   };
-
-  useEffect(() => {
-    const localVideoElement = document.createElement('video');
-    const remoteVideoElement = document.createElement('video');
-
-    localVideoElement.classList.add('local-video');
-    remoteVideoElement.classList.add('remote-video');
-
-    document.body.appendChild(localVideoElement);
-    document.body.appendChild(remoteVideoElement);
-
-    setLocalVideo(localVideoElement);
-    setRemoteVideo(remoteVideoElement);
-
-    return () => {
-      if (localVideoElement) document.body.removeChild(localVideoElement);
-      if (remoteVideoElement) document.body.removeChild(remoteVideoElement);
-    };
-  }, []);
 
   return (
     <div>
@@ -94,12 +109,12 @@ const Sender: React.FC = () => {
       >
         Start Video Call...
       </button>
-      <div className="video-container">
+      <div className="video-container text-white">
         {/* Local video (sender) */}
-        {localVideo && <video className="local-video" ref={el => el && (el.srcObject = localVideo.srcObject)} autoPlay muted />}
+        <video ref={localVideoRef} className="local-video" autoPlay muted />
         
         {/* Remote video (receiver) */}
-        {remoteVideo && <video className="remote-video" ref={el => el && (el.srcObject = remoteVideo.srcObject)} autoPlay />}
+        <video ref={remoteVideoRef} className="remote-video" autoPlay />
       </div>
     </div>
   );
