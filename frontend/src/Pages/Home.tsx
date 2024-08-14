@@ -17,21 +17,23 @@ const Home: React.FC = () => {
         socket!.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === 'room-created') {
-                navigate(`/room/${data.roomId}`);
+                localStorage.setItem("role","sender");
+                navigate(`/sender/${data.roomId}`);
+              }
             }
-        }
-    } else {
-      alert("Please enter your name to create a room.");
-    }
-  };
-
-  const handleJoinRoom = () => {
-    if (name && roomId) {
-        socket?.send(JSON.stringify({ type: 'join-room', name, roomId }));
-        socket!.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'room-joined') {
-                navigate(`/room/${data.roomId}`);
+          } else {
+            alert("Please enter your name to create a room.");
+          }
+        };
+        
+        const handleJoinRoom = () => {
+          if (name && roomId) {
+            socket?.send(JSON.stringify({ type: 'join-room', name, roomId }));
+            socket!.onmessage = (event) => {
+              const data = JSON.parse(event.data);
+              if (data.type === 'room-joined') {
+                localStorage.setItem("role","reciever");
+                navigate(`/receiver/${data.roomId}`);
             }
         }
       
@@ -93,9 +95,9 @@ const Home: React.FC = () => {
           </button>
         </div>
       </div>
-      {/* {!isConnected && (<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+      {!isConnected && (<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
       <Spinner />
-    </div>)} */}
+    </div>)}
     </div>
   );
 };

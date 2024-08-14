@@ -1,8 +1,8 @@
 import { Route, Routes, BrowserRouter } from 'react-router-dom';
 import Home from './Pages/Home';
-import Room from './Pages/Room';
 import { WebSocketProvider } from './Hooks/useSocket';
-import Loading from './Components/Loader';
+import { Receiver } from './Pages/Receiver';
+import Sender from './Pages/Sender';
 
 export default function App() {
   return (
@@ -18,8 +18,8 @@ export default function App() {
         <div className="relative z-10 h-full">
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/room/:roomId" element={<Room />} />
-            <Route path="/loader" element={<Loading />} />
+            <Route path="/sender/:roomId" element={<Sender />} />
+            <Route path="/receiver/:roomId" element={<Receiver />} />
 
           </Routes>
         </div>
